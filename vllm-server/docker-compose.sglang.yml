@@ -1,0 +1,42 @@
+name: sglang
+services:
+  # ===========================================
+  # SGLang Server (Optimized for Tool Use & Speed)
+  # ===========================================
+  sglang:
+    image: lmsysorg/sglang:latest
+    container_name: sglang-server
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - CUDA_VISIBLE_DEVICES=0
+      - HF_TOKEN=${HF_TOKEN}
+      - SGLANG_API_KEY=${VLLM_API_KEY}
+    ports:
+      - "8082:30000" # Mapped to host 8082 to avoid conflict with vLLM (8081)
+    volumes:
+      # Reuse the same model cache as vLLM
+      - ./models:/root/.cache/huggingface
+      - ./logs:/app/logs
+    command: >
+      python3 -m sglang.launch_server
+      --model-path Qwen/Qwen2.5-1.5B-Instruct
+      --port 30000
+      --host 0.0.0.0
+      --mem-fraction-static 0.8
+      --context-length 8192
+      --api-key ${VLLM_API_KEY}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:30000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
