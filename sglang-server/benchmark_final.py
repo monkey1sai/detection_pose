@@ -17,7 +17,7 @@ try:
 except:
     pass
 
-print("Starting Final Benchmark Script...", flush=True)
+print("開始執行最終基準測試腳本...", flush=True)
 
 def load_env_file(filepath):
     try:
@@ -71,9 +71,9 @@ class SystemMonitor:
             self.thread.join()
 
     def report(self):
-        if not self.gpu_stats: return "No GPU data."
-        return (f"    GPU Util: Avg {statistics.mean(self.gpu_stats):.1f}% | Max {max(self.gpu_stats):.1f}%\n"
-                f"    GPU VRAM: Avg {statistics.mean(self.vram_stats):.0f} MB | Max {max(self.vram_stats):.0f} MB")
+        if not self.gpu_stats: return "無 GPU 數據。"
+        return (f"    GPU 使用率: 平均 {statistics.mean(self.gpu_stats):.1f}% | 最大 {max(self.gpu_stats):.1f}%\n"
+                f"    GPU 顯存 (VRAM): 平均 {statistics.mean(self.vram_stats):.0f} MB | 最大 {max(self.vram_stats):.0f} MB")
 
 TOOLS = [
     {
@@ -138,13 +138,16 @@ async def make_request(session, req_id):
     
     try:
         async with session.post(SGLANG_URL, json=payload, headers={"Authorization": f"Bearer {API_KEY}"}) as resp:
-            async for line in resp.content:
+            while True:
+                line = await resp.content.readline()
+                if not line:
+                    break
                 line = line.decode('utf-8').strip()
                 if line.startswith("data: ") and line != "data: [DONE]":
                     if ttft is None: ttft = time.perf_counter()
                     try:
                         delta = json.loads(line[6:])["choices"][0]["delta"]
-                        if "tool_calls" in delta:
+                        if delta.get("tool_calls"):
                             for tc in delta["tool_calls"]:
                                 if "function" in tc:
                                     args = tc["function"].get("arguments", "")
@@ -153,17 +156,17 @@ async def make_request(session, req_id):
                         if "content" in delta and delta["content"]:
                             output += delta["content"]
                             tokens += len(delta["content"]) / 4
-                    except:
-                        pass
+                    except Exception as e:
+                        print(f"JSON Parse Error: {e} | Delta: {delta} | Line: {line[:50]}...", file=sys.stderr)
     except Exception as e:
         print(f"Error: {e}")
         
     end = time.perf_counter()
-    print(f"[{req_id}] In: {prompt[:40]}... | Out: {output[:50]}...", flush=True)
+    print(f"[請求 ID: {req_id}]\n輸入: {prompt}\n輸出: {output}\n" + "-"*30, flush=True)
     return {"ttft": (ttft-start) if ttft else (end-start), "total": end-start, "tokens": max(1, tokens)}
 
 async def run(concurrency, total):
-    print(f"Running {total} requests ({concurrency} conc)...", flush=True)
+    print(f"正在執行 {total} 個請求（並發數：{concurrency}）...", flush=True)
     monitor = SystemMonitor()
     monitor.start()
     
@@ -183,14 +186,14 @@ async def run(concurrency, total):
     duration = end_time - start_time
     
     print("\n" + "="*50)
-    print("REPORT")
+    print("測試報告")
     print("="*50)
-    print(f"Avg TTFT: {statistics.mean(r['ttft'] for r in valid):.4f}s")
-    print(f"Avg Total: {statistics.mean(r['total'] for r in valid):.4f}s")
-    print(f"System RPS: {len(valid)/duration:.2f} req/s")
-    print(f"System TPS: {sum(r['tokens'] for r in valid)/duration:.2f} tokens/s")
+    print(f"平均首字延遲 (TTFT): {statistics.mean(r['ttft'] for r in valid):.4f}s")
+    print(f"平均總耗時: {statistics.mean(r['total'] for r in valid):.4f}s")
+    print(f"系統吞吐量 (RPS): {len(valid)/duration:.2f} req/s")
+    print(f"系統生成速度 (TPS): {sum(r['tokens'] for r in valid)/duration:.2f} tokens/s")
     print("-"*50)
-    print("RESOURCES")
+    print("資源使用監控")
     print(monitor.report())
     print("="*50)
 

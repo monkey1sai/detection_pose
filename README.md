@@ -1,64 +1,46 @@
-# 人體救助行為偵測系統 (Human Distress Detection System)
+# TPS 調整策略（SGLang Tool Use 基準）
 
-此專案旨在利用姿態辨識技術偵測人體在不同情境下的求救行為，並結合高效能 LLM 推論後端進行情境分析與自動化處理，提供即時預警與援助。
-
----
-
-## 🎯 求救情境偵測
-
-本系統針對以下三種關鍵求救情境進行即時監測：
-
-### 1. 雙手舉起揮手救助 (Waving for Help)
-*   **偵測重點**：雙手手腕關節位置高於頭部，且具備規律性的水平位移特徵。
-
-### 2. 行進間或站立跌倒 (Fall Detection)
-*   **偵測重點**：身體重心高度在短時間內劇烈下降，且最終呈現水平姿勢。
-
-### 3. 呼吸道阻塞 (Choking Detection)
-*   **偵測重點**：雙手靠近頸部區域，且伴隨身體前傾或焦慮不安的姿態特徵。
+本文件整理「以提升 TPS 為主」的調整策略，適用於 `sglang-server/benchmark_50_tools_tps.py` 這類工具呼叫壓測腳本。
 
 ---
 
-## 🚀 推論核心架構 (Inference Backend)
-
-為了處理複雜的場景邏輯與工具調用 (Tool Use)，我們部署了基於 **SGLang** 優化的推論伺服器，專為 NVIDIA RTX 4060 Ti (8GB) 優化。
-
-### 核心特性
-*   **引擎**：SGLang (優化結構化輸出與 Tool Use)。
-*   **模型**：Qwen2.5-1.5B-Instruct。
-*   **前綴快取 (RadixAttention)**：自動快取重複的工具定義與系統提示詞，將首字延遲 (TTFT) 降低至 **0.2s** 以下。
-*   **高併發處理**：支援 20+ 使用者同時連線，展現極高的吞吐能力。
-
-### 效能實測 (RTX 4060 Ti)
-經由自研壓力測試腳本 `sglang-server/benchmark_final.py` 實測：
-*   **系統總吞吐量 (TPS)**：**~600 tokens/s** 🔥
-*   **反應延遲 (TTFT)**：**~0.17s**
-*   **成功率**：100% (在高併發壓力測試下穩定運作)
+## 影響 TPS 的關鍵因素
+- **tool schema 長度**：tools 定義越長，prompt 越大，TPS 越低。
+- **tools 數量**：工具越多，模型選擇成本越高，TPS 越低。
+- **輸出長度**：回答或 tool_call 參數越長，TPS 越低。
+- **模式與策略**：`tool_choice`、`max_tokens`、stream 模式會直接影響 TPS。
 
 ---
 
-## 🛠️ 快速啟動
+## 最高優先的 TPS 提升策略
+1. **降低 tools 數量**：建議 8–12 個工具為一組壓測集。
+2. **精簡 tool schema**：移除不必要欄位（例如 `settings` 詳細參數）。
+3. **限制輸出長度**：降低 `max_tokens`（例如 32–80）。
+4. **避免自由回答**：全部請求都以工具操作為主，減少自然語言輸出。
+5. **強制 tool 呼叫**：`tool_choice = "required"` 可避免回覆文字拉低 TPS。
+6. **動態裁剪工具**：依請求關鍵字只傳對應工具，縮短 prompt。
 
-### 1. 啟動推論伺服器 (SGLang)
+---
+
+## 目前基準腳本設定（摘要）
+檔案：`sglang-server/benchmark_50_tools_tps.py`
+- `TOOL_COUNT = 12`
+- `tool_choice = "required"`
+- `max_tokens = 80`
+- tool schema 已精簡（無 `settings` 內部參數）
+- 只產生工具導向請求（無一般問答）
+- 依關鍵字動態裁剪 tools
+
+---
+
+## 測試方式
 ```powershell
-cd sglang-server
-docker compose up -d
-```
-
-### 2. 執行效能基準測試
-```powershell
-# 模擬 20 個併發請求
-..\.venv\Scripts\python.exe sglang-server\benchmark_final.py --concurrency 20 --total 50
+.venv\Scripts\python.exe sglang-server\benchmark_50_tools_tps.py --concurrency 1 --total 5 --no-stream
 ```
 
 ---
 
-## 📁 專案結構
-*   `sglang-server/`：高效能推論伺服器配置與部署。
-    *   `docker-compose.yml`：SGLang 服務定義。
-    *   `benchmark_final.py`：全功能壓力測試與資源監控腳本。
-    *   `benchmark_report.md`：詳細效能報告。
-*   `README.md`：專案概覽與基礎指南。
-
----
-*本專案推論後端已由 Gemini CLI 代理完成優化。*
+## 取捨與建議
+- **TPS 優先**：降低 tools 數量 + 簡化 schema + 強制 tool。
+- **準確度優先**：保留更多工具與完整參數，但 TPS 會下降。
+- 建議區分 **TPS profile** 與 **Accuracy profile**，分別測量。
