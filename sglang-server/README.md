@@ -37,6 +37,45 @@ docker compose up -d
 ..\.venv\Scripts\python.exe benchmark_final.py --concurrency 20 --total 50
 ```
 
+## 🔊 WebSocket 即時 TTS 測試（逐字 / cancel / resume）
+
+此專案可搭配「WS Gateway（對外 WebSocket）」+「Riva TTS（內部 gRPC）」做即時語音串流。
+
+### 啟動 WS Gateway（MVP）
+
+預設先用 `DummyTtsEngine`（會產生可播放音訊，但不是真實語音），用來驗證逐字對齊 / cancel / resume / 背壓流程。
+
+```powershell
+cd sglang-server
+$env:WS_TTS_ENGINE="dummy"
+$env:WS_TTS_PORT="9000"
+..\.venv\Scripts\python.exe -m ws_gateway_tts.server
+```
+
+健康檢查：
+
+```powershell
+curl http://localhost:9000/healthz
+```
+
+### 基本壓測（50 連線、每秒 5 字、10 分鐘）
+
+```powershell
+..\.venv\Scripts\python.exe ws_tts_benchmark.py `
+  --url ws://localhost:9000/tts `
+  --concurrency 50 `
+  --cps 5 `
+  --duration 600 `
+  --scenario mixed `
+  --output-json logs/ws_tts_report.json
+```
+
+### 只跑 baseline（不注入 cancel / resume / 背壓）
+
+```powershell
+..\.venv\Scripts\python.exe ws_tts_benchmark.py --url ws://localhost:9000/tts --scenario baseline
+```
+
 ## 📦 推薦模型 (RTX 4060 Ti 8GB)
 
 | 模型 | VRAM 用量 | 說明 |
