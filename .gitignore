@@ -34,6 +34,7 @@ desktop.ini
 logs/*.json
 *.log
 logs/*.txt
+runs/
 
 # Audio artifacts
 *.wav
@@ -68,3 +69,7 @@ vllm-server/.env
 check_health.py
 vllm-server/vllm_full_log.txt
 vllm-server/vllm_log.txt
+
+# Web client
+web_client/node_modules/
+web_client/dist/

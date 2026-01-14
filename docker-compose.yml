@@ -197,6 +197,32 @@ services:
       start_period: 10s
 
   # ===========================================
+  # SAGA Server (Workflow + Observability)
+  # ===========================================
+  saga_server:
+    build:
+      context: .
+      dockerfile: docker/saga_server.Dockerfile
+    container_name: saga-server
+    environment:
+      - SGLANG_URL=${SGLANG_URL:-http://sglang:30000/v1/chat/completions}
+    ports:
+      - "9200:9200"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:9200/healthz').read(); print('ok')",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ===========================================
   # Web client (static) + reverse proxy (same origin)
   # ===========================================
   web:
@@ -211,10 +237,13 @@ services:
         condition: service_healthy
       sglang:
         condition: service_healthy
+      saga_server:
+        condition: service_healthy
     ports:
       - "8080:80"
     environment:
       - ORCHESTRATOR_UPSTREAM=${ORCHESTRATOR_UPSTREAM:-orchestrator:9100}
+      - SAGA_UPSTREAM=${SAGA_UPSTREAM:-saga_server:9200}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

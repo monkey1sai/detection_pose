@@ -211,3 +211,29 @@ docker compose up -d --build ws_gateway_tts
 ## 📚 文件索引
 
 - `docs/OPERATE.md`：維運、壓測、以及 SGLang 載入/故障排查（含 `twinkle-ai/Llama-3.2-3B-F1-Instruct` 載入流程）
+
+## SAGA MVP Demo
+
+```powershell
+pip install -r requirements.txt
+python -m examples.demo_run
+```
+
+輸出會產生在 `runs/<run_id>/`（trace.db / graph.json / workflow.mmd）。
+
+可用參數：
+```powershell
+python -m examples.demo_run --beam-width 4 --keywords 測試,品質
+python -m examples.demo_run --config path/to/config.json
+python -m examples.demo_run --use-sglang --sglang-api-key <SGLANG_API_KEY>
+python -m examples.demo_run --use-llm-modules --use-sglang --sglang-api-key <SGLANG_API_KEY>
+```
+
+## SAGA Server（WebSocket Observability）
+
+```powershell
+pip install -r requirements.txt
+uvicorn saga_server.app:app --host 0.0.0.0 --port 9200
+```
+
+WebSocket: `ws://localhost:9200/ws/run`
