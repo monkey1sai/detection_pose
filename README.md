@@ -258,3 +258,12 @@ docker compose up -d --build saga_server web
 UI 入口：`http://localhost:8080/`  
 WebSocket（同網域）：`ws://localhost:8080/ws/run`  
 Run artifacts（同網域）：`http://localhost:8080/runs/<run_id>/workflow.mmd`
+
+## SAGA TODO（待補強）
+- [ ] 在文件中明確聲明：MVP 僅單輪 outer loop，非完整多輪目標演化
+- [ ] 在文件中明確聲明：Optimizer 為 execution-only，不改目標、不改 scoring
+- [ ] 在文件中明確聲明：Replay 僅保證 behavioral replay
+- [ ] 在文件中明確聲明：Inner loop 搜尋策略可替換（Beam/Random/EvoSearch）
+- [ ] 將 Planner 權重實際接入 scoring（目前僅記錄，未影響排序）
+- [ ] LLM JSON schema 偏離時的重試/校驗機制（jsonschema + constrained decoding）
+- [ ] 強化 scoring sandbox（更嚴格 I/O 限制）
