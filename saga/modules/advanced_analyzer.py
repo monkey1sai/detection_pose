@@ -76,6 +76,11 @@ class AdvancedAnalyzer:
         weights = get_val(state, "weights", default=[])
         iteration = get_val(state, "iteration", default=0)
         
+        # Get goal_thresholds from state if not set in config
+        state_thresholds = get_val(state, "goal_thresholds", default={})
+        if state_thresholds and not self.goal_thresholds:
+            self.goal_thresholds = state_thresholds
+        
         # Calculate score distribution per dimension
         score_distribution = self._calculate_score_distribution(scores)
         
@@ -144,9 +149,13 @@ class AdvancedAnalyzer:
         self, scores: List[List[float]], weights: List[float]
     ) -> Dict[str, float]:
         """Calculate achievement rate for each goal."""
-        if not scores:
-            return {}
+        # Handle empty input with sensible defaults
+        if not weights:
+            weights = [0.33, 0.34, 0.33]  # Default 3 objectives
         
+        if not scores:
+            # No scores yet - return 50% baseline (unknown state)
+            return {f"goal_{i}": 0.5 for i in range(len(weights))}        
         achievement = {}
         thresholds = self.goal_thresholds or {}
         

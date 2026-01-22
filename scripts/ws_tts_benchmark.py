@@ -16,7 +16,7 @@ import aiohttp
 # Force UTF-8 output for Windows console
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:
+except Edxception:
     pass
 
 

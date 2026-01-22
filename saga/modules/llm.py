@@ -8,6 +8,12 @@ from saga.llm.prompts import analyzer_prompt, implementer_prompt, planner_prompt
 from saga.modules.base import Module
 
 
+def _state_get(state: Any, key: str, default: Any = None) -> Any:
+    if isinstance(state, dict):
+        return state.get(key, default)
+    return getattr(state, key, default)
+
+
 def _call_and_parse(client: SGLangAdapter, prompt: str, parser: Callable[[str], Any], max_retries: int = 3) -> Any:
     last_exc = None
     current_prompt = prompt
@@ -34,7 +40,9 @@ class LLMAnalyzer(Module):
         self.client = client
 
     def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        prompt = analyzer_prompt(state.get("text", ""), state.get("keywords", []))
+        text = _state_get(state, "text", "")
+        keywords = _state_get(state, "keywords", [])
+        prompt = analyzer_prompt(text, keywords)
         return _call_and_parse(self.client, prompt, parse_analyzer_output)
 
 

@@ -34,7 +34,7 @@ load_env_file('.env')
 
 SGLANG_URL = "http://localhost:8082/v1/chat/completions"
 API_KEY = os.getenv("SGLANG_API_KEY", "your-secure-api-key-here")
-MODEL_NAME = os.getenv("SGLANG_MODEL") or os.getenv("MODEL_NAME") or "twinkle-ai/Llama-3.2-3B-F1-Instruct"
+MODEL_NAME = os.getenv("SGLANG_MODEL") or os.getenv("MODEL_NAME") or "google/translategemma-4b-it"
 
 class SystemMonitor:
     def __init__(self, interval=0.5):

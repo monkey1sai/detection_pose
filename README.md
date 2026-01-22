@@ -110,14 +110,14 @@ curl -i http://localhost:8082/health
 curl http://<HOST_IP>:8082/v1/chat/completions `
   -H "Authorization: Bearer <SGLANG_API_KEY>" `
   -H "Content-Type: application/json" `
-  -d '{\"model\":\"twinkle-ai/Llama-3.2-3B-F1-Instruct\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}],\"stream\":false}'
+  -d '{\"model\":\"google/translategemma-4b-it\",\"messages\":[{\"role\":\"user\",\"content\":\"你好\"}],\"stream\":false}'
 ```
 
 ### 3. 執行壓力測試
 
 ```powershell
 # 使用專用的基準測試腳本
-..\.venv\Scripts\python.exe sglang-server\benchmark_final.py --concurrency 20 --total 50
+..\.venv\Scripts\python.exe scripts\benchmark_final.py --concurrency 20 --total 50
 ```
 
 ## 🔊 WebSocket 即時 TTS 測試（逐字 / cancel / resume）
@@ -186,7 +186,7 @@ docker compose up -d --build ws_gateway_tts
 
 | 模型 | VRAM 用量 | 說明 |
 |-----|----------|------|
-| `twinkle-ai/Llama-3.2-3B-F1-Instruct` | ~6GB | **預設**（可由 `.env` 的 `SGLANG_MODEL` 覆寫） |
+| `google/translategemma-4b-it` | ~8GB | **預設**（可由 `.env` 的 `SGLANG_MODEL` 覆寫） |
 | `Qwen/Qwen2.5-3B-Instruct` | ~6GB | 中英文表現佳 |
 | `Qwen/Qwen2.5-1.5B-Instruct` | ~3GB | 輕量且速度極快 |
 
@@ -210,7 +210,7 @@ docker compose up -d --build ws_gateway_tts
 
 ## 📚 文件索引
 
-- `docs/OPERATE.md`：維運、壓測、以及 SGLang 載入/故障排查（含 `twinkle-ai/Llama-3.2-3B-F1-Instruct` 載入流程）
+- `docs/OPERATE.md`：維運、壓測、以及 SGLang 載入/故障排查（含 `google/translategemma-4b-it` 載入流程）
 
 ## SAGA MVP Demo
 

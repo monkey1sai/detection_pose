@@ -48,8 +48,12 @@ models/**
 !models/.gitignore
 
 # SGLang model cache / GGUF artifacts (never commit)
-sglang-server/models/**
-sglang-server/models_gguf/**
+models_gguf/**
+!models_gguf/.gitignore
+
+# Context files (generated, large)
+context.md
+context.txt
 
 # Local vendor binaries (keep public repo clean)
 piper/

@@ -6,36 +6,58 @@ services:
   model_fetch:
     image: lmsysorg/sglang:latest
     container_name: sglang-model-fetch
+    env_file: .env
     environment:
       - HF_TOKEN=${HF_TOKEN}
       - HUGGINGFACE_HUB_TOKEN=${HF_TOKEN}
       - SGLANG_GGUF_SOURCE_REPO=${SGLANG_GGUF_SOURCE_REPO:-}
       - SGLANG_GGUF_SOURCE_FILE=${SGLANG_GGUF_SOURCE_FILE:-}
+      - SGLANG_GGUF_SOURCE_INCLUDE=${SGLANG_GGUF_SOURCE_INCLUDE:-}
     volumes:
-      - ./sglang-server/models:/root/.cache/huggingface
-      - ./sglang-server/models_gguf:/models_gguf
+      - ./models:/root/.cache/huggingface
+      - ./models_gguf:/models_gguf
+      - ./scripts:/scripts
     command: >
       bash -lc '
+        if [ -f /scripts/validate_model_config.py ]; then python3 /scripts/validate_model_config.py --skip-file-check; fi;
         set -euo pipefail;
         mkdir -p /models_gguf;
-        if [ -z "${SGLANG_GGUF_SOURCE_REPO}" ] || [ -z "${SGLANG_GGUF_SOURCE_FILE}" ]; then
-          echo "[model_fetch] skip (SGLANG_GGUF_SOURCE_REPO/SGLANG_GGUF_SOURCE_FILE not set)";
+        rm -f /models_gguf/.ready /models_gguf/model.gguf;
+        if [ -z "${SGLANG_GGUF_SOURCE_REPO}" ]; then
+          echo "[model_fetch] skip (SGLANG_GGUF_SOURCE_REPO not set)";
           touch /models_gguf/.ready;
           sleep infinity;
         fi;
-        echo "[model_fetch] downloading ${SGLANG_GGUF_SOURCE_REPO} ${SGLANG_GGUF_SOURCE_FILE}";
+        if [ -z "${SGLANG_GGUF_SOURCE_FILE}" ] && [ -z "${SGLANG_GGUF_SOURCE_INCLUDE:-}" ]; then
+          echo "[model_fetch] skip (set SGLANG_GGUF_SOURCE_FILE or SGLANG_GGUF_SOURCE_INCLUDE)";
+          touch /models_gguf/.ready;
+          sleep infinity;
+        fi;
         rm -rf /tmp/gguf && mkdir -p /tmp/gguf;
-        huggingface-cli download "${SGLANG_GGUF_SOURCE_REPO}" "${SGLANG_GGUF_SOURCE_FILE}" --local-dir /tmp/gguf --local-dir-use-symlinks False;
-        cp -f "/tmp/gguf/${SGLANG_GGUF_SOURCE_FILE}" /models_gguf/model.gguf;
+        if [ -n "${SGLANG_GGUF_SOURCE_FILE}" ]; then
+          echo "[model_fetch] downloading ${SGLANG_GGUF_SOURCE_REPO} ${SGLANG_GGUF_SOURCE_FILE}";
+          huggingface-cli download "${SGLANG_GGUF_SOURCE_REPO}" "${SGLANG_GGUF_SOURCE_FILE}" --local-dir /tmp/gguf --local-dir-use-symlinks False;
+          SRC_PATH="/tmp/gguf/${SGLANG_GGUF_SOURCE_FILE}";
+        else
+          echo "[model_fetch] downloading ${SGLANG_GGUF_SOURCE_REPO} (include: ${SGLANG_GGUF_SOURCE_INCLUDE})";
+          huggingface-cli download "${SGLANG_GGUF_SOURCE_REPO}" --include "${SGLANG_GGUF_SOURCE_INCLUDE}" --local-dir /tmp/gguf --local-dir-use-symlinks False;
+          SRC_PATH="$$(find /tmp/gguf -type f -name "*.gguf" | head -n 1 || true)";
+        fi;
+        if [ -z "$${SRC_PATH}" ] || [ ! -f "$${SRC_PATH}" ]; then
+          echo "[model_fetch] ERROR: gguf file not found after download";
+          find /tmp/gguf -maxdepth 4 -type f | sed "s#^#/tmp/gguf/#" || true;
+          exit 1;
+        fi;
+        cp -f "$${SRC_PATH}" /models_gguf/model.gguf;
         touch /models_gguf/.ready;
         echo "[model_fetch] ready: /models_gguf/model.gguf";
         sleep infinity;
       '
     healthcheck:
-      test: ["CMD", "bash", "-lc", "test -f /models_gguf/.ready"]
+      test: [ "CMD", "bash", "-lc", "test -f /models_gguf/.ready" ]
       interval: 10s
       timeout: 5s
-      retries: 30
+      retries: 100
       start_period: 5s
 
   # ===========================================
@@ -45,6 +67,7 @@ services:
     image: lmsysorg/sglang:latest
     container_name: sglang-server
     runtime: nvidia
+    env_file: .env
     environment:
       - NVIDIA_VISIBLE_DEVICES=0
       - CUDA_VISIBLE_DEVICES=0
@@ -55,17 +78,19 @@ services:
       - "8082:30000" # Mapped to host 8082 to avoid conflict with sglang (8081)
     volumes:
       # Reuse the same model cache as sglang
-      - ./sglang-server/models:/root/.cache/huggingface
-      - ./sglang-server/models_gguf:/models_gguf
-      - ./sglang-server/logs:/app/logs
+      - ./models:/root/.cache/huggingface
+      - ./models_gguf:/models_gguf
+      - ./logs:/app/logs
+      - ./scripts:/scripts
     depends_on:
       model_fetch:
         condition: service_healthy
     command: >
       bash -lc '
         set -euo pipefail;
+        if [ -f /scripts/validate_model_config.py ]; then python3 /scripts/validate_model_config.py; fi;
         ARGS=(python3 -m sglang.launch_server);
-        ARGS+=(--model-path "${SGLANG_MODEL:-twinkle-ai/Llama-3.2-3B-F1-Instruct}");
+        ARGS+=(--model-path "${SGLANG_MODEL:-google/translategemma-4b-it}");
         if [ -n "${SGLANG_TOKENIZER_PATH:-}" ]; then ARGS+=(--tokenizer-path "${SGLANG_TOKENIZER_PATH}"); fi;
         ARGS+=(--port 30000 --host 0.0.0.0);
         ARGS+=(--mem-fraction-static "${SGLANG_MEM_FRACTION_STATIC:-0.95}");
@@ -76,6 +101,7 @@ services:
         if [ -n "${SGLANG_QUANTIZATION_PARAM_PATH:-}" ]; then ARGS+=(--quantization-param-path "${SGLANG_QUANTIZATION_PARAM_PATH}"); fi;
         if [ -n "${SGLANG_KV_CACHE_DTYPE:-}" ]; then ARGS+=(--kv-cache-dtype "${SGLANG_KV_CACHE_DTYPE}"); fi;
         if [ -n "${SGLANG_MAX_TOTAL_TOKENS:-}" ]; then ARGS+=(--max-total-tokens "${SGLANG_MAX_TOTAL_TOKENS}"); fi;
+        if [ -n "${SGLANG_JSON_MODEL_OVERRIDE_ARGS:-}" ]; then ARGS+=(--json-model-override-args "${SGLANG_JSON_MODEL_OVERRIDE_ARGS}"); fi;
         case "${SGLANG_ALLOW_AUTO_TRUNCATE:-}" in 1|true|yes|y|on) ARGS+=(--allow-auto-truncate) ;; esac;
         exec "$${ARGS[@]}";
       '
@@ -84,17 +110,11 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['0']
-              capabilities: [gpu]
+              device_ids: [ '0' ]
+              capabilities: [ gpu ]
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python3",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:30000/health').read(); print('ok')",
-        ]
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:30000/health').read(); print('ok')" ]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -135,13 +155,7 @@ services:
       - "9000:9000"
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:9000/healthz').read(); print('ok')",
-        ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/healthz').read(); print('ok')" ]
       interval: 20s
       timeout: 5s
       retries: 10
@@ -158,15 +172,13 @@ services:
     depends_on:
       sglang:
         condition: service_healthy
-      ws_gateway_tts:
-        condition: service_healthy
     environment:
       - ORCH_HOST=0.0.0.0
       - ORCH_PORT=9100
       - ORCH_API_KEY=${ORCH_API_KEY:-}
       - SGLANG_BASE_URL=http://sglang:30000
       - SGLANG_API_KEY=${SGLANG_API_KEY}
-      - SGLANG_MODEL=${SGLANG_MODEL:-twinkle-ai/Llama-3.2-3B-F1-Instruct}
+      - SGLANG_MODEL=${SGLANG_MODEL:-google/translategemma-4b-it}
       - SGLANG_MAX_TOKENS=${SGLANG_MAX_TOKENS:-512}
       - SGLANG_SYSTEM_PROMPT=${SGLANG_SYSTEM_PROMPT:-Answer in Traditional Chinese. Do not claim to be Qwen. Avoid repeating phrases. Keep self-intro under 80 chars.}
       - SGLANG_TEMPERATURE=${SGLANG_TEMPERATURE:-0.5}
@@ -184,13 +196,7 @@ services:
       - "9100:9100"
     restart: unless-stopped
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz').read(); print('ok')",
-        ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9100/healthz').read(); print('ok')" ]
       interval: 20s
       timeout: 5s
       retries: 10
@@ -206,18 +212,19 @@ services:
     container_name: saga-server
     env_file: .env
     environment:
-      - SGLANG_URL=${SGLANG_URL:-http://sglang:30000/v1/chat/completions}
+      # 容器內部使用 Docker 服務名稱
+      - SGLANG_URL=http://sglang-server:30000/v1/chat/completions
+      - SGLANG_BASE_URL=http://sglang-server:30000
+      - SGLANG_API_KEY=${SGLANG_API_KEY}
+      - SAGA_USE_LLM_MODULES=true
     ports:
       - "9200:9200"
     restart: unless-stopped
+    depends_on:
+      sglang:
+        condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:9200/healthz').read(); print('ok')",
-        ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9200/healthz').read(); print('ok')" ]
       interval: 20s
       timeout: 5s
       retries: 10
@@ -249,7 +256,7 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1/healthz" ]
       interval: 20s
       timeout: 5s
       retries: 10

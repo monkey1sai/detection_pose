@@ -288,18 +288,93 @@ async def _tts_bridge(
     if tts_api_key:
         headers["Authorization"] = f"Bearer {tts_api_key}"
 
-    async with client.ws_connect(tts_url, headers=headers, heartbeat=20) as tts_ws:
-        await tts_ws.send_str(
-            json_dumps(
-                {
-                    "type": "start",
-                    "session_id": req.session_id,
-                    "audio_format": req.audio_format,
-                    "sample_rate": req.sample_rate,
-                    "channels": req.channels,
-                }
+    async def _drain_queue():
+        while True:
+            t = await tts_text_queue.get()
+            if t is None:
+                break
+
+    try:
+        tts_ws_ctx = client.ws_connect(tts_url, headers=headers, heartbeat=20)
+        async with tts_ws_ctx as tts_ws:
+            await tts_ws.send_str(
+                json_dumps(
+                    {
+                        "type": "start",
+                        "session_id": req.session_id,
+                        "audio_format": req.audio_format,
+                        "sample_rate": req.sample_rate,
+                        "channels": req.channels,
+                    }
+                )
             )
-        )
+
+            tts_seq = tts_seq_start
+
+            async def sender_loop() -> None:
+                nonlocal tts_seq
+                try:
+                    while True:
+                        if stop.is_set():
+                            break
+                        text = await tts_text_queue.get()
+                        if text is None:
+                            break
+                        await tts_ws.send_str(
+                            json_dumps({"type": "text_delta", "session_id": req.session_id, "seq": tts_seq, "text": text})
+                        )
+                        tts_seq += 1
+
+                    if cancel_requested.is_set():
+                        await tts_ws.send_str(
+                            json_dumps({"type": "cancel", "session_id": req.session_id, "seq": tts_seq})
+                        )
+                        tts_seq += 1
+                    elif not stop.is_set():
+                        await tts_ws.send_str(
+                            json_dumps({"type": "text_end", "session_id": req.session_id, "seq": tts_seq})
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    await ws_send_json(
+                        ws,
+                        {"type": "orchestrator_error", "code": "tts_send_error", "message": str(e)},
+                    )
+                    # Do not stop the whole session, just this TTS task
+                    # stop.set() 
+
+            sender_task = asyncio.create_task(sender_loop())
+            try:
+                async for msg in tts_ws:
+                    if stop.is_set():
+                        break
+                    if msg.type != WSMsgType.TEXT:
+                        continue
+                    try:
+                        obj = json.loads(msg.data)
+                    except Exception:
+                        continue
+                    await ws_send_json(ws, obj)
+                    if obj.get("type") in {"tts_end", "error"}:
+                        break
+            finally:
+                sender_task.cancel()
+                try:
+                    await sender_task
+                except Exception:
+                    pass
+
+    except Exception as e:
+        # TTS Connection failed. Log warning but proceed with LLM only.
+        print(f"[Orchestrator] TTS Connection failed ({tts_url}): {e}")
+        await_msg = {"type": "orchestrator_warning", "code": "tts_unavailable", "message": f"TTS unavailable: {e}"}
+        try:
+             await ws_send_json(ws, await_msg)
+        except:
+             pass
+        # Important: Drain the queue so LLM loop doesn't block if queue has maxsize (or just to be clean)
+        await _drain_queue()
 
         tts_seq = tts_seq_start
 

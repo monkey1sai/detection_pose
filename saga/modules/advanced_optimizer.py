@@ -141,8 +141,8 @@ class AdvancedOptimizer:
         
         for candidate in candidates:
             try:
-                result = run_scoring(scoring_code, candidate, context, timeout=self.timeout)
-                if isinstance(result, list) and all(isinstance(x, (int, float)) for x in result):
+                ok, result = run_scoring(scoring_code, candidate, context, timeout_s=self.timeout)
+                if ok and isinstance(result, list) and all(isinstance(x, (int, float)) for x in result):
                     scores.append(result)
                 else:
                     logger.warning(f"[AdvancedOptimizer] Invalid score for candidate: {result}")

@@ -35,7 +35,7 @@ class LoopState:
     score_history: List[float] = field(default_factory=list)
     pareto_history: List[int] = field(default_factory=list)
     weights: List[float] = field(default_factory=lambda: [0.33, 0.34, 0.33])
-    goal_thresholds: Dict[str, float] = field(default_factory=dict)
+    goal_thresholds: List[float] | Dict[str, float] = field(default_factory=lambda: [0.7, 0.7, 0.7])
     analysis_reports: List[AnalysisReport] = field(default_factory=list)
 
     def update(self, new_candidates: List[tuple[str, List[float]]]) -> None:
@@ -150,6 +150,36 @@ class OuterLoop:
         
         logger.info(f"[OuterLoop] Starting run {run_id}")
         yield LogEvent("info", f"Run {run_id} started. Mode: {self.mode.mode.value}")
+        
+        # Seed scoring: Initialize current_scores if candidates exist but scores don't
+        if state.candidates and not state.current_scores:
+            yield LogEvent("info", "Initializing seed scores for initial candidates...")
+            try:
+                # Generate basic implementation for scoring
+                impl_result = await self._run_async(self.implementer.run, {
+                    "plan": {},
+                    "constraints": []
+                })
+                scoring_code = impl_result.get("scoring_code", "")
+                
+                # Score initial candidates
+                context = {"keywords": state.keywords}
+                seed_results = self.optimizer.optimize(
+                    state.candidates, scoring_code, state.weights, context
+                )
+                if seed_results:
+                    state.update(seed_results)
+                    yield LogEvent("success", f"Seed scoring complete. {len(seed_results)} candidates scored.")
+                else:
+                    # Fallback: create default scores
+                    num_dims = len(state.weights)
+                    state.current_scores = [[0.5] * num_dims for _ in state.candidates]
+                    yield LogEvent("warning", "Using default seed scores (0.5)")
+            except Exception as e:
+                logger.warning(f"[OuterLoop] Seed scoring failed: {e}")
+                num_dims = len(state.weights) if state.weights else 3
+                state.current_scores = [[0.5] * num_dims for _ in state.candidates]
+                yield LogEvent("warning", f"Seed scoring failed, using defaults: {e}")
         
         while not self.terminator.should_stop(state):
             iteration_start = time.perf_counter()

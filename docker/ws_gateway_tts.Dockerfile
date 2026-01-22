@@ -11,7 +11,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY sglang-server/ws_gateway_tts /app/ws_gateway_tts
+COPY ws_gateway_tts /app/ws_gateway_tts
 
 EXPOSE 9000
 CMD ["python", "-m", "ws_gateway_tts.container_entrypoint"]

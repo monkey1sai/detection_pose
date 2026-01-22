@@ -93,13 +93,15 @@ class SagaRunner:
         trace_db.init()
         
         # Initial State
-        weights = self._parse_floats(overrides.get("weights")) or [1.0]
+        weights = self._parse_floats(overrides.get("weights")) or [0.33, 0.34, 0.33]
+        goal_thresholds = self._parse_floats(overrides.get("goal_thresholds")) or [0.7, 0.7, 0.7]
         state = LoopState(
             text=text,
             keywords=keywords,
             constraints=[], 
-            candidates=[text[:20]] if text else [], # Initial seed
-            weights=weights
+            candidates=[text] if text else [],  # Full text as initial seed
+            weights=weights,
+            goal_thresholds=goal_thresholds
         )
         
         # Create Loop

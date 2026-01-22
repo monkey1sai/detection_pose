@@ -147,7 +147,7 @@ curl http://localhost:8082/v1/models -H "Authorization: Bearer <SGLANG_API_KEY>"
 
 ---
 
-### 5.3 SGLang 載入 `twinkle-ai/Llama-3.2-3B-F1-Instruct` 的流程（如何判斷卡在哪）
+### 5.3 SGLang 載入 `google/translategemma-4b-it` 的流程（如何判斷卡在哪）
 
 此 repo 的 `docker-compose.yml` 會把主機路徑掛載到容器內：
 - `./sglang-server/models` → `/root/.cache/huggingface`（HuggingFace cache / snapshots / blobs）
@@ -195,7 +195,7 @@ docker logs --tail 200 sglang-server
 #### C) 8GB GPU 建議參數（避免 KV cache 記憶體不足）
 
 在 `.env` 建議搭配（可視情況微調）：
-- `SGLANG_MODEL=twinkle-ai/Llama-3.2-3B-F1-Instruct`
+- `SGLANG_MODEL=google/translategemma-4b-it`
 - `MAX_MODEL_LEN=2048`（先保守；穩定後再升）
 - `SGLANG_MEM_FRACTION_STATIC=0.95`（不行再試 `0.98`）
 - `SGLANG_KV_CACHE_DTYPE=fp8_e4m3`（降低 KV cache 佔用）

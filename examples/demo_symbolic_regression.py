@@ -27,6 +27,7 @@ from saga.modules.advanced_analyzer import AdvancedAnalyzer
 from saga.modules.advanced_planner import AdvancedPlanner
 from saga.modules.advanced_implementer import AdvancedImplementer
 from saga.modules.advanced_optimizer import AdvancedOptimizer
+from saga.modules.llm import LLMAnalyzer, LLMPlanner, LLMImplementer
 from saga.search.generators import LLMGenerator, EvoGenerator
 from saga.adapters.sglang_adapter import SGLangAdapter
 
@@ -186,6 +187,20 @@ def score(text: str, context: dict) -> list:
 
 
 # =============================================================================
+# LLM 模組組合
+# =============================================================================
+
+def build_llm_stack(sglang_url: str, sglang_api_key: str):
+    """Build LLM-backed modules and generator for SAGA."""
+    client = SGLangAdapter(url=sglang_url, api_key=sglang_api_key)
+    analyzer = LLMAnalyzer(client)
+    planner = LLMPlanner(client)
+    implementer = LLMImplementer(client)
+    generator = LLMGenerator(client=client)
+    return client, analyzer, planner, implementer, generator
+
+
+# =============================================================================
 # 主測試流程
 # =============================================================================
 
@@ -241,12 +256,12 @@ async def run_symbolic_regression_test():
     print(f"🔗 SGLang URL: {sglang_url}")
     
     try:
-        sglang_client = SGLangAdapter(base_url=sglang_url, api_key=sglang_api_key)
-        # 使用 LLM 驅動的生成器
-        generator = LLMGenerator(client=sglang_client)
-        print("✅ 使用 LLM 驅動的候選生成器")
+        _, analyzer, planner, implementer, generator = build_llm_stack(
+            sglang_url, sglang_api_key
+        )
+        print("✅ 使用 LLM 模組與候選生成器")
     except Exception as e:
-        logger.warning(f"無法初始化 LLMGenerator: {e}，改用 EvoGenerator")
+        logger.warning(f"無法初始化 LLM 模組: {e}，改用 EvoGenerator/Advanced 模組")
         generator = EvoGenerator(mutation_rate=0.3, crossover_rate=0.5)
         print("⚠️ 使用進化算法生成器 (Fallback)")
     
