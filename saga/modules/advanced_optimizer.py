@@ -78,7 +78,23 @@ class AdvancedOptimizer:
         Returns:
             List of (candidate, score_vector) tuples, sorted by weighted score
         """
-        logger.info(f"[AdvancedOptimizer] Starting optimization with {len(candidates)} candidates")
+        # Re-read config on every run so external callers can tune the optimizer
+        # via `optimizer.config.update({...})` (e.g. from Runner / UI overrides).
+        inner_iterations = self.config.get("inner_iterations", self.inner_iterations)
+        batch_size = self.config.get("batch_size", self.batch_size)
+        timeout = self.config.get("timeout", self.timeout)
+
+        if isinstance(inner_iterations, int) and inner_iterations >= 1:
+            self.inner_iterations = inner_iterations
+        if isinstance(batch_size, int) and batch_size >= 1:
+            self.batch_size = batch_size
+        if isinstance(timeout, (int, float)) and float(timeout) > 0:
+            self.timeout = float(timeout)
+
+        logger.info(
+            f"[AdvancedOptimizer] Starting optimization with {len(candidates)} candidates "
+            f"(inner_iterations={self.inner_iterations}, batch_size={self.batch_size}, timeout={self.timeout})"
+        )
         
         context = context or {}
         population = candidates.copy()
@@ -99,9 +115,7 @@ class AdvancedOptimizer:
             logger.info(f"[AdvancedOptimizer] Inner iteration {inner_iter + 1}/{self.inner_iterations}")
             
             # Step 1: Generation
-            new_candidates = self.generator.generate(
-                population, feedback, self.batch_size
-            )
+            new_candidates = self.generator.generate(population, feedback, self.batch_size)
             all_candidates = list(set(population + new_candidates))  # Deduplicate
             
             logger.debug(f"[AdvancedOptimizer] Generated {len(new_candidates)} new candidates, total={len(all_candidates)}")

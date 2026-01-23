@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import multiprocessing as mp
 from typing import Any, Dict, Tuple
 
@@ -9,13 +10,17 @@ SAFE_BUILTINS: Dict[str, Any] = {
     "sum": sum,
     "min": min,
     "max": max,
+    "pow": pow,
     "float": float,
     "int": int,
     "str": str,
     "list": list,
     "dict": dict,
+    "enumerate": enumerate,
+    "zip": zip,
     "range": range,
     "abs": abs,
+    "Exception": Exception,
 }
 
 
@@ -28,7 +33,7 @@ def _worker(code: str, text: str, ctx: Dict[str, Any], q: mp.Queue) -> None:
     - No module imports (no `__import__`).
     - Runs in a separate process to isolate memory and allow timeout termination.
     """
-    ns: Dict[str, Any] = {"__builtins__": SAFE_BUILTINS}
+    ns: Dict[str, Any] = {"__builtins__": SAFE_BUILTINS, "ast": ast}
     exec(code, ns, ns)
     score_fn = ns.get("score")
     if not callable(score_fn):

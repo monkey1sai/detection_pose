@@ -237,12 +237,32 @@ class EvoGenerator(CandidateGenerator):
     def _mutate(self, candidate: str) -> str:
         """Simple mutation by character replacement or insertion."""
         import random
+        import re
+
         if not candidate:
             return candidate
-        
+
+        # If it looks like a math expression (symbolic regression), mutate as an expression.
+        expr = candidate.strip()
+        is_expr = bool(re.match(r"^[0-9xX\\s\\+\\-\\*\\/\\(\\)\\.\\^_]+$", expr)) and ("x" in expr.lower())
+        if is_expr:
+            op = random.choice(["add", "sub", "mul", "pow", "coeff"])
+            term = random.choice(["1", "2", "3", "x", "x**2"])
+            base = expr
+            if op == "add":
+                return f"({base}) + {term}"
+            if op == "sub":
+                return f"({base}) - {term}"
+            if op == "mul":
+                return f"({base}) * {random.choice(['2', '3', 'x'])}"
+            if op == "pow":
+                return f"({base})**{random.choice(['2', '3'])}"
+            # coeff
+            return f"{random.choice(['2', '3', '0.5'])}*({base})"
+
+        # Fallback (non-expression): keep a minimal, language-agnostic perturbation.
         pos = random.randint(0, len(candidate) - 1)
-        mutations = ["優化", "改進", "增強", "調整"]
-        mutation = random.choice(mutations)
+        mutation = random.choice(["+", "-", "*", " "])
         return candidate[:pos] + mutation + candidate[pos:]
 
 

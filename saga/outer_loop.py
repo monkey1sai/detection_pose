@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 from enum import Enum
 
 from saga.config import SagaConfig
@@ -27,6 +27,8 @@ class LoopState:
     iteration: int = 0
     text: str = ""
     keywords: List[str] = field(default_factory=list)
+    task: str = ""  # e.g. "symbolic_regression"
+    dataset: List[Tuple[float, float]] = field(default_factory=list)  # for symbolic regression
     constraints: List[str] = field(default_factory=list)
     candidates: List[str] = field(default_factory=list)
     current_scores: List[List[float]] = field(default_factory=list)
@@ -221,7 +223,11 @@ class OuterLoop:
                 plan_result = await self._run_async(self.planner.run, {
                     "analysis": analysis_result,
                     "constraints": state.constraints,
-                    "iteration": state.iteration
+                    "iteration": state.iteration,
+                    "weights": state.weights,
+                    "keywords": state.keywords,
+                    "task": state.task,
+                    "text": state.text,
                 })
                 new_constraints = plan_result.get("new_constraints", [])
                 state.constraints.extend(new_constraints)
@@ -231,6 +237,7 @@ class OuterLoop:
                     yield LogEvent("info", f"Added {len(new_constraints)} new constraints.")
             except Exception as e:
                 logger.error(f"[OuterLoop] Planner failed: {e}")
+                plan_result = {}
                 new_constraints = []
                 yield LogEvent("error", f"Planner failed: {e}")
             
@@ -253,7 +260,10 @@ class OuterLoop:
             try:
                 impl_result = await self._run_async(self.implementer.run, {
                     "plan": plan_result,
-                    "constraints": state.constraints
+                    "constraints": state.constraints,
+                    "objectives": plan_result.get("objectives"),
+                    "keywords": state.keywords,
+                    "task": state.task,
                 })
                 scoring_code = impl_result.get("scoring_code", "")
             except Exception as e:
@@ -265,11 +275,18 @@ class OuterLoop:
             logger.info(f"[OuterLoop] Step 4: Optimizing (inner loop)...")
             yield LogEvent("info", "Step 4: Running genetic optimization (Inner Loop)...")
             try:
+                context = {
+                    "keywords": state.keywords,
+                    "constraints": state.constraints,
+                    "task": state.task,
+                    "dataset": state.dataset,
+                }
                 optimized = await self._run_async(
                     self.optimizer.optimize,
                     state.candidates,
                     scoring_code,
-                    state.weights
+                    state.weights,
+                    context,
                 )
                 state.update(optimized)
                 yield LogEvent("success", f"Optimization complete. Best score: {state.best_score:.4f}")

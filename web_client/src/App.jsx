@@ -28,13 +28,16 @@ const TEMPLATES = {
   symbolic_regression: {
     name: "符號回歸 (Symbolic Regression)",
     text: "找出擬合以下數據點的數學公式: [(-3,-2),(-2,-4),(-1,-4),(0,-2),(1,2),(2,8),(3,16),(4,26)]",
-    keywords: "x²,多項式,擬合,二次",
+    keywords: "符號回歸,x²,多項式,擬合,二次",
     mode: "autopilot",
-    maxIters: 5,
-    weights: "0.5, 0.3, 0.2",
-    thresholds: "0.95, 0.5, 0.9",
-    convergenceEps: 0.01,
-    patience: 2,
+    maxIters: 2,
+    weights: "0.6, 0.2, 0.2",
+    thresholds: "0.8, 0.5, 0.2",
+    convergenceEps: 0.000001,
+    patience: 50,
+    innerIterations: 6,
+    batchSize: 10,
+    scoringTimeoutS: 1.0,
   },
   text_optimization: {
     name: "文字優化",
@@ -46,6 +49,9 @@ const TEMPLATES = {
     thresholds: "0.7, 0.7, 0.7",
     convergenceEps: 0.001,
     patience: 3,
+    innerIterations: 2,
+    batchSize: 4,
+    scoringTimeoutS: 15.0,
   },
 };
 
@@ -75,6 +81,11 @@ export default function App() {
   const [maxIters, setMaxIters] = useState(10);
   const [convergenceEps, setConvergenceEps] = useState(0.001);
   const [patience, setPatience] = useState(3);
+
+  // Inner loop parameters (Optimizer)
+  const [innerIterations, setInnerIterations] = useState(2);
+  const [batchSize, setBatchSize] = useState(4);
+  const [scoringTimeoutS, setScoringTimeoutS] = useState(15.0);
 
   // Objective parameters
   const [weights, setWeights] = useState("0.33, 0.34, 0.33");
@@ -182,6 +193,9 @@ export default function App() {
       setThresholds(t.thresholds);
       setConvergenceEps(t.convergenceEps);
       setPatience(t.patience);
+      setInnerIterations(t.innerIterations);
+      setBatchSize(t.batchSize);
+      setScoringTimeoutS(t.scoringTimeoutS);
       appendEvent({ type: "template_loaded", template: templateKey });
     }
   }, [appendEvent]);
@@ -228,6 +242,9 @@ export default function App() {
             convergence_patience: patience,
             weights: weightList,
             goal_thresholds: thresholdList,
+            inner_iterations: innerIterations,
+            batch_size: batchSize,
+            scoring_timeout_s: scoringTimeoutS,
           },
         }),
       );
@@ -301,9 +318,15 @@ export default function App() {
           startTransition(() => {
             setLogs((prev) => [...prev, msg].slice(-100)); // Keep last 100 logs
           });
-          // Scroll to bottom
+          // Scroll to bottom using container ref to prevent page jumping
           setTimeout(() => {
-            logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            if (logsContainerRef.current) {
+              const { scrollHeight, clientHeight } = logsContainerRef.current;
+              logsContainerRef.current.scrollTo({
+                top: scrollHeight - clientHeight,
+                behavior: "smooth"
+              });
+            }
           }, 100);
         }
       } catch {
@@ -321,13 +344,16 @@ export default function App() {
     ws.onerror = () => {
       appendEvent({ type: "ws_error" });
     };
-  }, [wsUrl, text, keywordList, mode, maxIters, convergenceEps, patience, weightList, thresholdList, fetchArtifacts, appendEvent, uiState]);
+  }, [wsUrl, text, keywordList, mode, maxIters, convergenceEps, patience, innerIterations, batchSize, scoringTimeoutS, weightList, thresholdList, fetchArtifacts, appendEvent, uiState]);
 
   const isRunning = uiState === UI_STATES.RUNNING;
   const isPaused = uiState === UI_STATES.PAUSED;
   const isWaitingReview = uiState === UI_STATES.WAITING_REVIEW;
   const isCompleted = uiState === UI_STATES.COMPLETED;
   const showApproveButton = isWaitingReview && mode !== "autopilot";
+
+  // Ref for logs container
+  const logsContainerRef = useRef(null);
 
   return (
     <div className="page">
@@ -466,7 +492,7 @@ export default function App() {
                   type="number"
                   value={convergenceEps}
                   onChange={(e) => setConvergenceEps(parseFloat(e.target.value) || 0.001)}
-                  step={0.001}
+                  step={0.000001}
                   disabled={isRunning || isPaused}
                 />
               </label>
@@ -499,6 +525,44 @@ export default function App() {
                   value={thresholds}
                   onChange={(e) => setThresholds(e.target.value)}
                   placeholder="0.95, 0.5, 0.9"
+                  disabled={isRunning || isPaused}
+                />
+              </label>
+            </div>
+
+            <div className="param-group">
+              <h3>內循環（Optimizer）</h3>
+              <label>
+                inner_iterations
+                <input
+                  type="number"
+                  value={innerIterations}
+                  onChange={(e) => setInnerIterations(parseInt(e.target.value) || 2)}
+                  min={1}
+                  max={100}
+                  disabled={isRunning || isPaused}
+                />
+              </label>
+              <label>
+                batch_size
+                <input
+                  type="number"
+                  value={batchSize}
+                  onChange={(e) => setBatchSize(parseInt(e.target.value) || 4)}
+                  min={1}
+                  max={200}
+                  disabled={isRunning || isPaused}
+                />
+              </label>
+              <label>
+                scoring_timeout_s
+                <input
+                  type="number"
+                  value={scoringTimeoutS}
+                  onChange={(e) => setScoringTimeoutS(parseFloat(e.target.value) || 15.0)}
+                  step={0.1}
+                  min={0.1}
+                  max={120}
                   disabled={isRunning || isPaused}
                 />
               </label>
@@ -591,6 +655,18 @@ export default function App() {
             <summary><h2 style={{ display: 'inline' }}>運算圖 JSON</h2></summary>
             <pre>{graphJson || "(等待中)"}</pre>
           </details>
+
+          {/* Events Panel (Collapsible) - Moved here */}
+          <details className="panel events-panel">
+            <summary><h2 style={{ display: 'inline' }}>事件除錯</h2></summary>
+            <pre className="events-log" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+              {events.map((e, i) => (
+                <div key={i} className={`event-line event-${e.type}`}>
+                  {JSON.stringify(e)}
+                </div>
+              ))}
+            </pre>
+          </details>
         </div>
 
         {/* Right Column: Logs */}
@@ -598,7 +674,7 @@ export default function App() {
           {/* System Logs Panel */}
           <div className="panel logs-panel full-height">
             <h2>系統日誌</h2>
-            <div className="logs-container">
+            <div className="logs-container" ref={logsContainerRef}>
               {logs.length === 0 && <div className="placeholder">尚無日誌...</div>}
               {logs.map((log, i) => (
                 <div key={i} className={`log-entry log-${log.level}`}>
@@ -611,18 +687,6 @@ export default function App() {
               <div ref={logsEndRef} />
             </div>
           </div>
-
-          {/* Events Panel (Collapsible) */}
-          <details className="panel events-panel">
-            <summary><h2 style={{ display: 'inline' }}>事件除錯</h2></summary>
-            <pre className="events-log" style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-              {events.map((e, i) => (
-                <div key={i} className={`event-line event-${e.type}`}>
-                  {JSON.stringify(e)}
-                </div>
-              ))}
-            </pre>
-          </details>
         </div>
       </section>
     </div>

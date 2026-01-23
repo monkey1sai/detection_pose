@@ -57,16 +57,21 @@ class AdvancedImplementer:
         
         plan = state.get("plan", {})
         constraints = state.get("constraints", [])
+        task = (state.get("task", "") or "").strip().lower()
         objectives = state.get("objectives", ["length", "keyword", "quality"])
+        if not isinstance(objectives, list) or not objectives:
+            objectives = ["length", "keyword", "quality"]
         
         # Generate scoring code
-        if self.use_llm:
+        if task == "symbolic_regression":
+            scoring_code = self._symbolic_regression_scorer()
+            is_valid, validation_msg = self._validate_code(scoring_code)
+        elif self.use_llm:
             scoring_code = self._generate_with_llm(plan, constraints, objectives)
+            is_valid, validation_msg = self._validate_code(scoring_code)
         else:
             scoring_code = self._generate_from_templates(objectives, constraints)
-        
-        # Validate generated code
-        is_valid, validation_msg = self._validate_code(scoring_code)
+            is_valid, validation_msg = self._validate_code(scoring_code)
         
         if not is_valid:
             logger.warning(f"[AdvancedImplementer] Code validation failed: {validation_msg}")
@@ -85,6 +90,128 @@ class AdvancedImplementer:
         
         logger.info(f"[AdvancedImplementer] Implementation complete, valid={is_valid}")
         return result
+
+    def _symbolic_regression_scorer(self) -> str:
+        """
+        Generate a sandbox-safe scoring function for symbolic regression.
+
+        Requirements:
+        - No imports (sandbox blocks __import__)
+        - No eval/exec (blocked by validator)
+        - Uses `ast` injected by sandbox worker to parse expressions safely
+        - Expects `context["dataset"]` = list[(x, y)]
+        """
+        return r'''
+def score(text: str, context: dict) -> list:
+    """
+    Symbolic regression scoring.
+
+    Returns [fit_score, validity_score, simplicity_score] in [0, 1].
+    - fit_score: normalized MSE against dataset
+    - validity_score: 1 if expression parses + evaluates on dataset, else 0
+    - simplicity_score: shorter expressions score higher
+    """
+    expr = (text or "").strip()
+    dataset = context.get("dataset", [])
+
+    # 1) Quick character whitelist to prevent non-math junk.
+    allowed = "0123456789xX+-*/(). _"
+    ok_chars = True
+    for ch in expr:
+        if ch not in allowed:
+            ok_chars = False
+            break
+
+    if (not expr) or (not ok_chars) or (not dataset):
+        return [0.0, 0.0, 0.0]
+
+    # 2) Safe AST evaluation (no eval).
+    def _calc(node, x):
+        if node.__class__ is ast.Expression:
+            return _calc(node.body, x)
+        if node.__class__ is ast.BinOp:
+            left = _calc(node.left, x)
+            right = _calc(node.right, x)
+            op = node.op
+            if op.__class__ is ast.Add:
+                return left + right
+            if op.__class__ is ast.Sub:
+                return left - right
+            if op.__class__ is ast.Mult:
+                return left * right
+            if op.__class__ is ast.Div:
+                if right == 0:
+                    return 1e9
+                return left / right
+            if op.__class__ is ast.Pow:
+                return left ** right
+            raise Exception("bad-op")
+        if node.__class__ is ast.UnaryOp:
+            v = _calc(node.operand, x)
+            if node.op.__class__ is ast.USub:
+                return -v
+            if node.op.__class__ is ast.UAdd:
+                return v
+            raise Exception("bad-unary")
+        if node.__class__ is ast.Name:
+            if node.id == "x":
+                return x
+            raise Exception("bad-name")
+        if node.__class__ is ast.Constant:
+            return float(node.value)
+        # Fallback for older AST nodes (e.g. ast.Num)
+        try:
+            return float(node.n)
+        except:
+            pass
+        raise Exception("bad-node")
+
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except:
+        return [0.0, 0.0, 0.0]
+
+    # 3) Fit score (normalized MSE).
+    n = len(dataset)
+    ys = []
+    i = 0
+    while i < n:
+        ys.append(float(dataset[i][1]))
+        i += 1
+
+    y_mean = sum(ys) / max(n, 1)
+    var = 0.0
+    i = 0
+    while i < n:
+        dy = ys[i] - y_mean
+        var += dy * dy
+        i += 1
+    var = var / max(n, 1)
+
+    sum_sq = 0.0
+    i = 0
+    while i < n:
+        x = float(dataset[i][0])
+        y_true = float(dataset[i][1])
+        try:
+            y_pred = float(_calc(tree, x))
+        except:
+            return [0.0, 0.0, 0.0]
+        err = y_pred - y_true
+        sum_sq += err * err
+        i += 1
+
+    mse = sum_sq / max(n, 1)
+    mse_norm = mse / (var + 1e-9)
+    fit_score = 1.0 - min(mse_norm, 1.0)
+    fit_score = max(0.0, fit_score)
+
+    # 4) Simplicity score
+    simplicity_score = 1.0 - min(len(expr) / 50.0, 1.0)
+    simplicity_score = max(0.0, simplicity_score)
+
+    return [fit_score, 1.0, simplicity_score]
+'''
     
     def _generate_from_templates(
         self, objectives: List[str], constraints: List[str]

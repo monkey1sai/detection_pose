@@ -64,6 +64,8 @@ class AdvancedPlanner:
         current_constraints = state.get("constraints", [])
         iteration = state.get("iteration", 0)
         current_weights = state.get("weights", [0.33, 0.34, 0.33])
+        task = (state.get("task", "") or "").strip().lower()
+        keywords = state.get("keywords", []) or []
         
         # Determine strategy based on iteration and trends
         strategy = self._determine_strategy(analysis, iteration)
@@ -98,8 +100,12 @@ class AdvancedPlanner:
             "new_constraints": new_constraints,
             "strategy": strategy,
             "focus_objectives": focus_objectives,
-            "weight_adjustments": adjustments
+            "weight_adjustments": adjustments,
         }
+
+        # Task-specific objectives (used by Implementer to generate appropriate scoring proxy)
+        if task == "symbolic_regression" or any(k in ["符號回歸", "多項式", "擬合", "x²", "equation", "formula"] for k in keywords):
+            result["objectives"] = ["regression_fit", "expression_validity", "simplicity"]
         
         logger.info(
             f"[AdvancedPlanner] Plan generated: strategy={strategy}, "

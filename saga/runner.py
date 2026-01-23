@@ -3,6 +3,7 @@ SAGA Runner - Facade for the OuterLoop multi-turn engine.
 """
 from __future__ import annotations
 
+import ast
 import logging
 import uuid
 import json
@@ -23,6 +24,45 @@ from .adapters.groq_adapter import GroqAdapter
 from .trace.sqlite import TraceDB
 
 logger = logging.getLogger(__name__)
+
+
+_SYMBOLIC_REGRESSION_KEYWORDS = {"符號回歸", "多項式", "擬合", "x²", "equation", "formula"}
+
+
+def _infer_task_type(*, text: str, keywords: list[str]) -> str:
+    if any(k in _SYMBOLIC_REGRESSION_KEYWORDS for k in keywords):
+        return "symbolic_regression"
+    # Heuristic: looks like a python literal list of (x, y) pairs
+    s = (text or "").strip()
+    if s.startswith("[") and ("(" in s and "," in s and ")" in s):
+        return "symbolic_regression"
+    return ""
+
+
+def _try_parse_dataset(text: str) -> list[tuple[float, float]]:
+    s = (text or "").strip()
+    if not s:
+        return []
+    # Allow extra prompt text around the literal list, e.g. "....: [(x,y), ...]"
+    start = s.find("[")
+    end = s.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        s = s[start : end + 1]
+    try:
+        obj = ast.literal_eval(s)
+    except Exception:
+        return []
+    if not isinstance(obj, (list, tuple)):
+        return []
+    out: list[tuple[float, float]] = []
+    for item in obj:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            try:
+                out.append((float(item[0]), float(item[1])))
+            except Exception:
+                continue
+    return out
+
 
 class SagaRunner:
     """Orchestrates the SAGA system components."""
@@ -104,6 +144,43 @@ class SagaRunner:
         # Initial State
         weights = self._parse_floats(overrides.get("weights")) or [0.33, 0.34, 0.33]
         goal_thresholds = self._parse_floats(overrides.get("goal_thresholds")) or [0.7, 0.7, 0.7]
+
+        task = _infer_task_type(text=text, keywords=keywords)
+        dataset = _try_parse_dataset(text) if task == "symbolic_regression" else []
+        if task:
+            logger.info(f"Detected task={task} (dataset_points={len(dataset)})")
+
+        # Optimizer defaults (can be overridden by UI)
+        if task == "symbolic_regression":
+            default_inner_iterations = 6
+            default_batch_size = 10
+            default_scoring_timeout_s = 1.0
+        else:
+            # Keep conservative defaults for generic text tasks
+            default_inner_iterations = 2
+            default_batch_size = 4
+            default_scoring_timeout_s = 15.0
+
+        try:
+            inner_iterations = int(overrides.get("inner_iterations", default_inner_iterations))
+        except Exception:
+            inner_iterations = default_inner_iterations
+        try:
+            batch_size = int(overrides.get("batch_size", default_batch_size))
+        except Exception:
+            batch_size = default_batch_size
+
+        scoring_timeout_s = overrides.get("scoring_timeout_s", None)
+        if scoring_timeout_s is None:
+            scoring_timeout_s = overrides.get("timeout", None)
+        try:
+            scoring_timeout_s = float(scoring_timeout_s) if scoring_timeout_s is not None else float(default_scoring_timeout_s)
+        except Exception:
+            scoring_timeout_s = float(default_scoring_timeout_s)
+
+        inner_iterations = max(1, inner_iterations)
+        batch_size = max(1, batch_size)
+        scoring_timeout_s = max(0.1, scoring_timeout_s)
         
         # Enhanced seeding for symbolic regression
         # CRITICAL FIX: Do NOT include raw 'text' as candidate, because if it evaluates to the dataset itself,
@@ -117,17 +194,19 @@ class SagaRunner:
         state = LoopState(
             text=text,
             keywords=keywords,
+            task=task,
+            dataset=dataset,
             constraints=[], 
             candidates=initial_candidates,
             weights=weights,
             goal_thresholds=goal_thresholds
         )
         
-        # Optimize config for speed
+        # Apply optimizer tuning (read by AdvancedOptimizer at runtime)
         self.optimizer.config.update({
-            "inner_iterations": 2,  # Reduce from 3 to 2
-            "batch_size": 4,        # Reduce batch size for LLM speed
-            "timeout": 15.0         # Increase timeout for complex evals
+            "inner_iterations": inner_iterations,
+            "batch_size": batch_size,
+            "timeout": scoring_timeout_s,
         })
         
         if hasattr(self.generator, "set_context"):
