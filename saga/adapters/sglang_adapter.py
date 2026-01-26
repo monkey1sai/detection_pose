@@ -14,17 +14,19 @@ class SGLangAdapter:
         self.api_key = api_key
         self.model = model or os.getenv("SGLANG_MODEL") or os.getenv("MODEL_NAME") or "twinkle-ai/Llama-3.2-3B-F1-Instruct"
 
-    def build_payload(self, prompt: str) -> Dict[str, Any]:
+    def build_payload(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """Build request payload for SGLang."""
-        return {
+        payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
         }
+        payload.update(kwargs)
+        return payload
 
-    def call(self, prompt: str) -> Dict[str, Any]:
+    def call(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """Call SGLang API and return parsed JSON."""
-        payload = self.build_payload(prompt)
+        payload = self.build_payload(prompt, **kwargs)
         data = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self.api_key:
