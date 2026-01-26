@@ -13,6 +13,7 @@ class SGLangAdapter:
         self.url = url
         self.api_key = api_key
         self.model = model or os.getenv("SGLANG_MODEL") or os.getenv("MODEL_NAME") or "twinkle-ai/Llama-3.2-3B-F1-Instruct"
+        self.timeout = int(os.getenv("SGLANG_TIMEOUT", "60"))
 
     def build_payload(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """Build request payload for SGLang."""
@@ -33,7 +34,7 @@ class SGLangAdapter:
             headers["Authorization"] = f"Bearer {self.api_key}"
         req = urllib.request.Request(self.url, data=data, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 return json.loads(r.read().decode("utf-8"))
         except Exception as e:
             # Re-raise with more context

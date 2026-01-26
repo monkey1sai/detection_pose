@@ -11,7 +11,9 @@ powershell -ExecutionPolicy Bypass -File scripts/up.ps1
 Tip: to reduce repetitive outputs, tune these in `.env`:
 - `SGLANG_SYSTEM_PROMPT`
 - `SGLANG_TEMPERATURE`, `SGLANG_TOP_P`, `SGLANG_TOP_K`
+- `SGLANG_TEMPERATURE`, `SGLANG_TOP_P`, `SGLANG_TOP_K`
 - `SGLANG_REPETITION_PENALTY`
+- `SGLANG_TIMEOUT` (Default 300s, useful for complex prompts)
 
 Tip: 若 `sglang` logs 出現 `RuntimeError: Not enough memory`（多半是 KV cache 需要的 VRAM 不夠），優先調整：
 - `.env`：`MAX_MODEL_LEN=2048`（或更低）
@@ -228,6 +230,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m examples.demo_run --config path/to/config.json
 .\.venv\Scripts\python.exe -m examples.demo_run --use-sglang --sglang-api-key <SGLANG_API_KEY>
 .\.venv\Scripts\python.exe -m examples.demo_run --use-llm-modules --use-sglang --sglang-api-key <SGLANG_API_KEY>
+```powershell
+.\.venv\Scripts\python.exe -m examples.demo_run --use-llm-modules --use-sglang --sglang-api-key <SGLANG_API_KEY>
+```
+
+### Production CLI
+Use `saga_cli.py` for standard operations:
+```powershell
+uv run saga_cli.py run
 ```
 
 ## SAGA Server（WebSocket Observability）
