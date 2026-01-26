@@ -17,6 +17,7 @@ from enum import Enum
 
 from saga.config import SagaConfig
 from saga.search.generators import AnalysisReport, CandidateGenerator, Selector
+from saga.trace.graph import write_graph, write_mermaid
 
 logger = logging.getLogger(__name__)
 
@@ -324,6 +325,23 @@ class OuterLoop:
             all_reports=state.analysis_reports,
             elapsed_ms=total_elapsed
         )
+        
+        # Generate graph artifacts
+        try:
+            run_dir = self.config.run_path(run_id)
+            nodes = [
+                {"id": f"Iter_{i}", "label": f"Iteration {i}", "score": round(s, 4)}
+                for i, s in enumerate(state.score_history, 1)
+            ]
+            edges = [
+                {"from": f"Iter_{i}", "to": f"Iter_{i+1}"}
+                for i in range(1, len(nodes))
+            ]
+            write_graph(run_dir / "graph.json", nodes, edges)
+            write_mermaid(run_dir / "workflow.mmd", edges)
+            logger.info(f"[OuterLoop] Generated graph.json and workflow.mmd in {run_dir}")
+        except Exception as e:
+            logger.warning(f"[OuterLoop] Failed to generate graph artifacts: {e}")
         
         logger.info(f"[OuterLoop] Run complete: {termination_reason}, total_elapsed={total_elapsed}ms")
         yield final

@@ -152,8 +152,8 @@ class SagaRunner:
 
         # Optimizer defaults (can be overridden by UI)
         if task == "symbolic_regression":
-            default_inner_iterations = 6
-            default_batch_size = 10
+            default_inner_iterations = 15
+            default_batch_size = 20
             default_scoring_timeout_s = 1.0
         else:
             # Keep conservative defaults for generic text tasks
@@ -187,7 +187,14 @@ class SagaRunner:
         # the scorer might give it a perfect score (data matching data), creating a false optimum.
         initial_candidates = []
         if any(k in ["x²", "多項式", "擬合", "formula", "equation"] for k in keywords):
-            initial_candidates.extend(["x", "x**2", "x*x + x", "2*x + 1", "x**2 - 1", "0.0 * x"])
+            # Expanded seed set covering more quadratic polynomial variations
+            initial_candidates.extend([
+                "x", "x**2", "x**2 + x", "x**2 - x", 
+                "x**2 + 2*x", "x**2 + 3*x", "x**2 - 2*x",
+                "x**2 + x - 1", "x**2 + x - 2", "x**2 + 2*x - 1", "x**2 + 2*x - 2",
+                "x**2 + 3*x - 1", "x**2 + 3*x - 2", "x**2 + 3*x - 3",
+                "2*x + 1", "3*x - 1", "x**2 - 1", "x**2 - 2",
+            ])
         elif text and len(text) < 50: # Only include text if it's short (likely a formula hint), not a full dataset
             initial_candidates.append(text)
             
